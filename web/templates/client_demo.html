@@ -1,0 +1,46 @@
+{{define "content"}}
+<h2>Client Demo</h2>
+
+<div style="background: #e9ecef; padding: 20px; border-radius: 5px;">
+    <label>Client ID:</label>
+    <input type="text" id="clientId" value="client-text">
+
+    <label>Current DMA:</label>
+    <input type="text" id="dma" value="10">
+
+    <button onclick="requestAd()">Request Ad</button>
+</div>
+
+<div id="status" style="margin-top: 20px; font-weight: bold;"></div>
+<pre id="output"
+    style="background: #333; color: #fff; padding: 15px; border-radius: 5px; margin-top: 10px; overflow-x: auto;"></pre>
+
+<script>
+    async function requestAd() {
+        const clientId = document.getElementById('clientId').value;
+        const dma = document.getElementById('dma').value;
+        const status = document.getElementById('status');
+        const output = document.getElementById('output');
+
+        status.innerText = "Requesting...";
+        output.innerText = "";
+
+        try {
+            const response = await fetch(`/vast?client_id=${clientId}&dma=${dma}`);
+            const text = await response.text();
+
+            status.innerText = "Response Received (" + response.status + "):";
+            output.innerText = text;
+
+            if (text.includes("<MediaFile")) {
+                status.innerText += " ✅ Ad Found!";
+            } else {
+                status.innerText += " ⚠️ No Ad / Empty Response";
+            }
+
+        } catch (e) {
+            status.innerText = "Error: " + e.message;
+        }
+    }
+</script>
+{{end}}

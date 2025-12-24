@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"rockbot-ad-server-go/internal/models"
+	"rockbot-adserver/internal/models"
 	"time"
 
 	_ "github.com/mattn/go-sqlite3"

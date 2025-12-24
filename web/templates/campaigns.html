@@ -1,0 +1,45 @@
+{{define "content"}}
+<h2>Campaigns</h2>
+
+<h3>Create New Campaign</h3>
+<form method="POST" action="/campaigns/create">
+    <label>Campaign Name:</label>
+    <input type="text" name="name" required>
+
+    <label>Start Time:</label>
+    <input type="datetime-local" name="start_time" required>
+
+    <label>End Time:</label>
+    <input type="datetime-local" name="end_time" required>
+
+    <label>Target DMA (* for all):</label>
+    <input type="text" name="target_dma" value="*" required>
+
+    <label>Ad Media URL:</label>
+    <select name="media_url" required>
+        <option value="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4">ForBiggerBlazes</option>
+        <option value="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4">ForBiggerEscapes</option>
+        <option value="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4">ForBiggerFun</option>
+    </select>
+
+    <button type="submit">Create Campaign</button>
+</form>
+
+<h3>Active Campaigns</h3>
+<table>
+    <tr>
+        <th>Name</th>
+        <th>Start</th>
+        <th>End</th>
+        <th>DMA</th>
+    </tr>
+    {{range .}}
+    <tr>
+        <td>{{.Name}}</td>
+        <td>{{.StartTime.Format "2025-01-02 15:04"}}</td>
+        <td>{{.EndTime.Format "2025-01-02 15:04"}}</td>
+        <td>{{.TargetDMA}}</td>
+    </tr>
+    {{end}}
+</table>
+{{end}}

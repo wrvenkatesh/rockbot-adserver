@@ -1,5 +1,8 @@
 module rockbot-adserver
 
-go 1.25.4
+go 1.25.5
 
-require github.com/mattn/go-sqlite3 v1.14.32
+require (
+	github.com/google/uuid v1.6.0
+	github.com/mattn/go-sqlite3 v1.14.32
+)

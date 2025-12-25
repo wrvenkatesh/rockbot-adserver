@@ -3,6 +3,7 @@ package api
 import (
 	"html/template"
 	"log"
+	"strings"
 	"net/http"
 	"rockbot-adserver/internal/models"
 	"rockbot-adserver/internal/service"
@@ -29,7 +30,7 @@ func AuthMiddleware(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// Login Pages
+// Login Page
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method == "GET" {
 		tmpl := template.Must(template.ParseFiles("web/templates/login.html"))
@@ -40,7 +41,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	if username == "admin" && password == "admin" {
+	// TODO: Implement proper authentication. For now we're using a simple hardcoded username and password.
+	if strings.ToLower(username) == "admin" && strings.ToLower(password) == "admin" {
 		http.SetCookie(w, &http.Cookie{
 			Name:  "session_token",
 			Value: "valid-token",
@@ -60,8 +62,22 @@ func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	availableAds, err := h.service.GetAvailableAds()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Campaigns    []models.Campaign
+		AvailableAds []models.Ad
+	}{
+		Campaigns:    campaigns,
+		AvailableAds: availableAds,
+	}
+
 	tmpl := template.Must(template.ParseFiles("web/templates/layout.html", "web/templates/campaigns.html"))
-	tmpl.Execute(w, campaigns)
+	tmpl.Execute(w, data)
 }
 
 func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
@@ -70,18 +86,25 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	start, _ := time.Parse("2025-12-02T15:04", r.FormValue("start_time"))
-	end, _ := time.Parse("2025-12-02T15:04", r.FormValue("end_time"))
+	start, _ := time.Parse("2006-01-02T15:04", r.FormValue("start_time"))
+	end, _ := time.Parse("2006-01-02T15:04", r.FormValue("end_time"))
 
-	// Basic ads parsing from form
-	ads := []models.Ad{
-		{
-			MediaURL:        r.FormValue("media_url"),
-			DurationSeconds: 15, // simplified
-			CreativeID:      "creative-1",
-		},
+	// Get the selected available ad by media_url
+	mediaURL := r.FormValue("media_url")
+	availableAd, err := h.service.GetAvailableAdByMediaURL(mediaURL)
+	if err != nil {
+		http.Error(w, "Invalid media URL selected", http.StatusBadRequest)
+		return
 	}
 
+	// Create a new ad linked to the campaign (copying properties from available ad)
+	ads := []models.Ad{
+		{
+			MediaURL:        availableAd.MediaURL,
+			DurationSeconds: availableAd.DurationSeconds,
+			CreativeID:      availableAd.CreativeID,
+		},
+	}
 	campaign := models.Campaign{
 		Name:      r.FormValue("name"),
 		StartTime: start,

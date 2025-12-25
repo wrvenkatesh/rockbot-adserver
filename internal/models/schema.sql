@@ -8,7 +8,7 @@ CREATE TABLE IF NOT EXISTS campaigns (
 
 CREATE TABLE IF NOT EXISTS ads (
     id TEXT PRIMARY KEY,
-    campaign_id TEXT NOT NULL,
+    campaign_id TEXT,
     media_url TEXT NOT NULL,
     duration_seconds INTEGER NOT NULL,
     creative_id TEXT NOT NULL,

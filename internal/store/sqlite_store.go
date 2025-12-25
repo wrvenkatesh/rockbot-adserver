@@ -51,7 +51,7 @@ func (s *Store) initSchema() error {
 	);
 	CREATE TABLE IF NOT EXISTS ads (
 		id TEXT PRIMARY KEY,
-		campaign_id TEXT NOT NULL,
+		campaign_id TEXT,
 		media_url TEXT NOT NULL,
 		duration_seconds INTEGER NOT NULL,
 		creative_id TEXT NOT NULL,
@@ -178,4 +178,63 @@ func (s *Store) GetAllCampaigns() ([]models.Campaign, error) {
 		campaigns = append(campaigns, c)
 	}
 	return campaigns, nil
+}
+
+// SeedAvailableAds seeds available ads (with NULL campaign_id) if they don't exist
+func (s *Store) SeedAvailableAds(ads []models.Ad) error {
+	for _, ad := range ads {
+		// Check if ad with this media_url already exists
+		var exists bool
+		err := s.db.QueryRow("SELECT EXISTS(SELECT 1 FROM ads WHERE media_url = ? AND campaign_id IS NULL)", ad.MediaURL).Scan(&exists)
+		if err != nil {
+			return err
+		}
+		
+		if !exists {
+			_, err = s.db.Exec("INSERT INTO ads (id, campaign_id, media_url, duration_seconds, creative_id) VALUES (?, NULL, ?, ?, ?)",
+				ad.ID, ad.MediaURL, ad.DurationSeconds, ad.CreativeID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// GetAvailableAds returns all ads that are not linked to any campaign (available for selection)
+func (s *Store) GetAvailableAds() ([]models.Ad, error) {
+	rows, err := s.db.Query("SELECT id, campaign_id, media_url, duration_seconds, creative_id FROM ads WHERE campaign_id IS NULL ORDER BY media_url")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ads []models.Ad
+	for rows.Next() {
+		var ad models.Ad
+		var campaignID sql.NullString
+		if err := rows.Scan(&ad.ID, &campaignID, &ad.MediaURL, &ad.DurationSeconds, &ad.CreativeID); err != nil {
+			return nil, err
+		}
+		if campaignID.Valid {
+			ad.CampaignID = campaignID.String
+		}
+		ads = append(ads, ad)
+	}
+	return ads, nil
+}
+
+// GetAvailableAdByMediaURL returns an available ad (with NULL campaign_id) by media_url
+func (s *Store) GetAvailableAdByMediaURL(mediaURL string) (*models.Ad, error) {
+	var ad models.Ad
+	var campaignID sql.NullString
+	err := s.db.QueryRow("SELECT id, campaign_id, media_url, duration_seconds, creative_id FROM ads WHERE media_url = ? AND campaign_id IS NULL", mediaURL).
+		Scan(&ad.ID, &campaignID, &ad.MediaURL, &ad.DurationSeconds, &ad.CreativeID)
+	if err != nil {
+		return nil, err
+	}
+	if campaignID.Valid {
+		ad.CampaignID = campaignID.String
+	}
+	return &ad, nil
 }

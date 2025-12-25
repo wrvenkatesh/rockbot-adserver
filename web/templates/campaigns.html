@@ -17,9 +17,9 @@
 
     <label>Ad Media URL:</label>
     <select name="media_url" required>
-        <option value="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4">ForBiggerBlazes</option>
-        <option value="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4">ForBiggerEscapes</option>
-        <option value="http://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4">ForBiggerFun</option>
+        {{range .AvailableAds}}
+        <option value="{{.MediaURL}}">{{.MediaURL}}</option>
+        {{end}}
     </select>
 
     <button type="submit">Create Campaign</button>
@@ -33,11 +33,11 @@
         <th>End</th>
         <th>DMA</th>
     </tr>
-    {{range .}}
+    {{range .Campaigns}}
     <tr>
         <td>{{.Name}}</td>
-        <td>{{.StartTime.Format "2025-01-02 15:04"}}</td>
-        <td>{{.EndTime.Format "2025-01-02 15:04"}}</td>
+        <td>{{.StartTime}}</td>
+        <td>{{.EndTime}}</td>
         <td>{{.TargetDMA}}</td>
     </tr>
     {{end}}

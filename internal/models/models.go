@@ -70,3 +70,19 @@ type MediaFile struct {
 	Height   int    `xml:"height,attr"`
 	URL      string `xml:",chardata"`
 }
+
+type RequestLog struct {
+	ID              string    `json:"id"`
+	Method          string    `json:"method"`
+	Path            string    `json:"path"`
+	QueryParams     string    `json:"query_params"`
+	RequestHeaders  string    `json:"request_headers"`
+	RequestBody     string    `json:"request_body"`
+	ResponseStatus  int       `json:"response_status"`
+	ResponseHeaders string    `json:"response_headers"`
+	ResponseBody    string    `json:"response_body"`
+	DurationMs      int64     `json:"duration_ms"`
+	Timestamp       time.Time `json:"timestamp"`
+	RemoteAddr      string    `json:"remote_addr"`
+	UserAgent       string    `json:"user_agent"`
+}

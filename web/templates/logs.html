@@ -1,0 +1,171 @@
+{{define "content"}}
+<h2>Request Logs</h2>
+
+<div style="background: #f9f9f9; padding: 15px; border-radius: 5px; margin-bottom: 20px;">
+    <h3 style="margin-top: 0;">Filters</h3>
+    <form method="GET" action="/logs" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px;">
+        <div>
+            <label>Method:</label>
+            <select name="method" style="width: 100%; padding: 8px; margin-top: 5px;">
+                <option value="">All</option>
+                <option value="GET" {{if eq .Method "GET"}}selected{{end}}>GET</option>
+                <option value="POST" {{if eq .Method "POST"}}selected{{end}}>POST</option>
+                <option value="PUT" {{if eq .Method "PUT"}}selected{{end}}>PUT</option>
+                <option value="DELETE" {{if eq .Method "DELETE"}}selected{{end}}>DELETE</option>
+            </select>
+        </div>
+        <div>
+            <label>Path:</label>
+            <input type="text" name="path" value="{{.Path}}" placeholder="e.g., /vast" style="width: 100%; padding: 8px; margin-top: 5px;">
+        </div>
+        <div>
+            <label>Start Time:</label>
+            <input type="datetime-local" name="start_time" value="{{.StartTime}}" style="width: 100%; padding: 8px; margin-top: 5px;">
+        </div>
+        <div>
+            <label>End Time:</label>
+            <input type="datetime-local" name="end_time" value="{{.EndTime}}" style="width: 100%; padding: 8px; margin-top: 5px;">
+        </div>
+        <div>
+            <label>Limit:</label>
+            <input type="number" name="limit" value="{{.Limit}}" min="1" max="200" style="width: 100%; padding: 8px; margin-top: 5px;">
+        </div>
+        <div style="display: flex; align-items: flex-end;">
+            <button type="submit" style="width: 100%; padding: 10px; background: #007bff; color: white; border: none; cursor: pointer;">Apply Filters</button>
+        </div>
+    </form>
+</div>
+
+<div style="margin-bottom: 15px;">
+    <strong>Total Logs:</strong> {{.Total}} | 
+    <strong>Showing:</strong> {{if gt .Total 0}}{{add .Offset 1}}{{else}}0{{end}} - {{.ShowingEnd}}
+</div>
+
+{{if .Logs}}
+<table style="width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 0.9em;">
+    <thead>
+        <tr style="background: #f2f2f2;">
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Timestamp</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Method</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Path</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Status</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Duration (ms)</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Remote Addr</th>
+            <th style="border: 1px solid #ddd; padding: 8px; text-align: left;">Actions</th>
+        </tr>
+    </thead>
+    <tbody>
+        {{range .Logs}}
+        <tr>
+            <td style="border: 1px solid #ddd; padding: 8px;">{{.Timestamp.Format "2006-01-02 15:04:05"}}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">
+                <span style="padding: 2px 6px; border-radius: 3px; font-size: 0.85em;
+                    {{if eq .Method "GET"}}background: #d4edda; color: #155724;{{end}}
+                    {{if eq .Method "POST"}}background: #fff3cd; color: #856404;{{end}}
+                    {{if eq .Method "PUT"}}background: #cce5ff; color: #004085;{{end}}
+                    {{if eq .Method "DELETE"}}background: #f8d7da; color: #721c24;{{end}}">
+                    {{.Method}}
+                </span>
+            </td>
+            <td style="border: 1px solid #ddd; padding: 8px; max-width: 300px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="{{.Path}}">{{.Path}}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">
+                <span style="padding: 2px 6px; border-radius: 3px; font-size: 0.85em;
+                    {{if ge .ResponseStatus 200}}{{if lt .ResponseStatus 300}}background: #d4edda; color: #155724;{{end}}{{end}}
+                    {{if ge .ResponseStatus 300}}{{if lt .ResponseStatus 400}}background: #fff3cd; color: #856404;{{end}}{{end}}
+                    {{if ge .ResponseStatus 400}}background: #f8d7da; color: #721c24;{{end}}">
+                    {{.ResponseStatus}}
+                </span>
+            </td>
+            <td style="border: 1px solid #ddd; padding: 8px;">{{.DurationMs}}</td>
+            <td style="border: 1px solid #ddd; padding: 8px; font-size: 0.85em;">{{.RemoteAddr}}</td>
+            <td style="border: 1px solid #ddd; padding: 8px;">
+                <button onclick="showLogDetails('{{.ID}}')" style="padding: 4px 8px; background: #6c757d; color: white; border: none; cursor: pointer; font-size: 0.85em; border-radius: 3px;">Details</button>
+            </td>
+        </tr>
+        {{end}}
+    </tbody>
+</table>
+
+<div style="margin-top: 20px; display: flex; gap: 10px; align-items: center;">
+    {{if gt .Offset 0}}
+    <a href="?offset={{.PrevOffset}}&limit={{.Limit}}{{if .Method}}&method={{.Method}}{{end}}{{if .Path}}&path={{.Path}}{{end}}{{if .StartTime}}&start_time={{.StartTime}}{{end}}{{if .EndTime}}&end_time={{.EndTime}}{{end}}" 
+       style="padding: 8px 15px; background: #6c757d; color: white; text-decoration: none; border-radius: 3px;">Previous</a>
+    {{end}}
+    {{if .HasMore}}
+    <a href="?offset={{.NextOffset}}&limit={{.Limit}}{{if .Method}}&method={{.Method}}{{end}}{{if .Path}}&path={{.Path}}{{end}}{{if .StartTime}}&start_time={{.StartTime}}{{end}}{{if .EndTime}}&end_time={{.EndTime}}{{end}}" 
+       style="padding: 8px 15px; background: #007bff; color: white; text-decoration: none; border-radius: 3px;">Next</a>
+    {{end}}
+</div>
+{{else}}
+<p>No logs found.</p>
+{{end}}
+
+<!-- Modal for log details -->
+<div id="logModal" style="display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.5);">
+    <div style="background-color: white; margin: 5% auto; padding: 20px; border: 1px solid #888; width: 80%; max-width: 900px; max-height: 80vh; overflow-y: auto; border-radius: 5px;">
+        <span onclick="closeLogModal()" style="color: #aaa; float: right; font-size: 28px; font-weight: bold; cursor: pointer;">&times;</span>
+        <h2>Log Details</h2>
+        <div id="logDetails"></div>
+    </div>
+</div>
+
+<script>
+// Store logs data for modal
+const logsData = {{.LogsJSON}};
+
+function showLogDetails(logId) {
+    const log = logsData.find(l => l.id === logId);
+    if (!log) return;
+    
+    const details = document.getElementById('logDetails');
+    details.innerHTML = `
+        <div style="margin-bottom: 15px;">
+            <h3>Request</h3>
+            <p><strong>Method:</strong> ${log.method}</p>
+            <p><strong>Path:</strong> ${log.path}</p>
+            <p><strong>Query Params:</strong> ${log.query_params || 'None'}</p>
+            <p><strong>Remote Address:</strong> ${log.remote_addr}</p>
+            <p><strong>User Agent:</strong> ${log.user_agent || 'N/A'}</p>
+            <p><strong>Timestamp:</strong> ${new Date(log.timestamp).toLocaleString()}</p>
+            <details style="margin-top: 10px;">
+                <summary style="cursor: pointer; font-weight: bold;">Request Headers</summary>
+                <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto;">${log.request_headers ? JSON.stringify(JSON.parse(log.request_headers), null, 2) : 'None'}</pre>
+            </details>
+            <details style="margin-top: 10px;">
+                <summary style="cursor: pointer; font-weight: bold;">Request Body</summary>
+                <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; max-height: 200px; overflow-y: auto;">${log.request_body || 'None'}</pre>
+            </details>
+        </div>
+        <div>
+            <h3>Response</h3>
+            <p><strong>Status:</strong> <span style="padding: 2px 6px; border-radius: 3px; background: ${log.response_status >= 400 ? '#f8d7da' : log.response_status >= 300 ? '#fff3cd' : '#d4edda'};">
+                ${log.response_status}
+            </span></p>
+            <p><strong>Duration:</strong> ${log.duration_ms}ms</p>
+            <details style="margin-top: 10px;">
+                <summary style="cursor: pointer; font-weight: bold;">Response Headers</summary>
+                <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto;">${log.response_headers ? JSON.stringify(JSON.parse(log.response_headers), null, 2) : 'None'}</pre>
+            </details>
+            <details style="margin-top: 10px;">
+                <summary style="cursor: pointer; font-weight: bold;">Response Body</summary>
+                <pre style="background: #f5f5f5; padding: 10px; border-radius: 3px; overflow-x: auto; max-height: 300px; overflow-y: auto;">${log.response_body || 'None'}</pre>
+            </details>
+        </div>
+    `;
+    document.getElementById('logModal').style.display = 'block';
+}
+
+function closeLogModal() {
+    document.getElementById('logModal').style.display = 'none';
+}
+
+// Close modal when clicking outside
+window.onclick = function(event) {
+    const modal = document.getElementById('logModal');
+    if (event.target == modal) {
+        modal.style.display = 'none';
+    }
+}
+</script>
+{{end}}
+

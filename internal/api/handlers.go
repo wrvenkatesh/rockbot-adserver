@@ -1,21 +1,125 @@
 package api
 
 import (
+	"bytes"
+	"encoding/json"
 	"html/template"
+	"io"
 	"log"
-	"strings"
 	"net/http"
 	"rockbot-adserver/internal/models"
 	"rockbot-adserver/internal/service"
+	"rockbot-adserver/internal/store"
+	"strconv"
+	"strings"
 	"time"
+
+	"github.com/google/uuid"
 )
 
 type Handler struct {
 	service *service.AdService
+	store   *store.Store
 }
 
-func NewHandler(s *service.AdService) *Handler {
-	return &Handler{service: s}
+func NewHandler(s *service.AdService, st *store.Store) *Handler {
+	return &Handler{service: s, store: st}
+}
+
+// responseWriter wraps http.ResponseWriter to capture response body and status
+type responseWriter struct {
+	http.ResponseWriter
+	statusCode int
+	body       *bytes.Buffer
+}
+
+func newResponseWriter(w http.ResponseWriter) *responseWriter {
+	return &responseWriter{
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+		body:           &bytes.Buffer{},
+	}
+}
+
+func (rw *responseWriter) WriteHeader(code int) {
+	rw.statusCode = code
+	rw.ResponseWriter.WriteHeader(code)
+}
+
+func (rw *responseWriter) Write(b []byte) (int, error) {
+	rw.body.Write(b)
+	return rw.ResponseWriter.Write(b)
+}
+
+// LoggingMiddleware captures and logs all requests and responses
+func LoggingMiddleware(store *store.Store) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			startTime := time.Now()
+
+			// Capture request body
+			var requestBodyBytes []byte
+			if r.Body != nil {
+				requestBodyBytes, _ = io.ReadAll(r.Body)
+				r.Body = io.NopCloser(bytes.NewBuffer(requestBodyBytes))
+			}
+
+			// Capture request headers
+			requestHeadersBytes, _ := json.Marshal(r.Header)
+
+			// Capture query parameters
+			queryParams := r.URL.RawQuery
+
+			// Wrap response writer to capture response
+			rw := newResponseWriter(w)
+
+			// Process request
+			next.ServeHTTP(rw, r)
+
+			// Calculate duration
+			duration := time.Since(startTime)
+
+			// Capture response body (limit size to avoid storing huge responses)
+			responseBody := rw.body.String()
+			maxBodySize := 10000 // 10KB limit
+			if len(responseBody) > maxBodySize {
+				responseBody = responseBody[:maxBodySize] + "... [truncated]"
+			}
+
+			// Capture response headers
+			responseHeadersBytes, _ := json.Marshal(rw.Header())
+
+			// Limit request body size as well
+			requestBody := string(requestBodyBytes)
+			if len(requestBody) > maxBodySize {
+				requestBody = requestBody[:maxBodySize] + "... [truncated]"
+			}
+
+			// Create request log
+			requestLog := models.RequestLog{
+				ID:              uuid.New().String(),
+				Method:          r.Method,
+				Path:            r.URL.Path,
+				QueryParams:     queryParams,
+				RequestHeaders:  string(requestHeadersBytes),
+				RequestBody:     requestBody,
+				ResponseStatus:  rw.statusCode,
+				ResponseHeaders: string(responseHeadersBytes),
+				ResponseBody:    responseBody,
+				DurationMs:      duration.Milliseconds(),
+				Timestamp:       startTime,
+				RemoteAddr:      r.RemoteAddr,
+				UserAgent:       r.UserAgent(),
+			}
+
+			// Save log asynchronously to avoid blocking the response
+			go func() {
+				if err := store.SaveRequestLog(requestLog); err != nil {
+					log.Printf("Failed to save request log: %v", err)
+				}
+			}()
+		})
+	}
 }
 
 // Middleware for Auth
@@ -76,6 +180,7 @@ func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
 		AvailableAds: availableAds,
 	}
 
+	log.Println("data.Campaigns", data.Campaigns)
 	tmpl := template.Must(template.ParseFiles("web/templates/layout.html", "web/templates/campaigns.html"))
 	tmpl.Execute(w, data)
 }
@@ -86,8 +191,25 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	start, _ := time.Parse("2006-01-02T15:04", r.FormValue("start_time"))
-	end, _ := time.Parse("2006-01-02T15:04", r.FormValue("end_time"))
+	startTimeStr := r.FormValue("start_time")
+	endTimeStr := r.FormValue("end_time")
+
+	start, err := time.Parse("2006-01-02T15:04", startTimeStr)
+	if err != nil {
+		log.Printf("Error parsing start_time '%s': %v", startTimeStr, err)
+		http.Error(w, "Invalid start_time format", http.StatusBadRequest)
+		return
+	}
+
+	end, err := time.Parse("2006-01-02T15:04", endTimeStr)
+	if err != nil {
+		log.Printf("Error parsing end_time '%s': %v", endTimeStr, err)
+		http.Error(w, "Invalid end_time format", http.StatusBadRequest)
+		return
+	}
+
+	log.Println("start", start)
+	log.Println("end", end)
 
 	// Get the selected available ad by media_url
 	mediaURL := r.FormValue("media_url")
@@ -147,4 +269,166 @@ func (h *Handler) ServeAds(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/xml")
 	w.Write([]byte(xmlResponse))
+}
+
+// ListRequestLogs renders the request logs UI page
+func (h *Handler) ListRequestLogs(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters for filters
+	limit := 50 // default limit for UI
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && parsedLimit > 0 && parsedLimit <= 200 {
+			limit = int(parsedLimit)
+		}
+	}
+
+	offset := 0
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if parsedOffset, err := strconv.ParseInt(offsetStr, 10, 32); err == nil {
+			offset = int(parsedOffset)
+		}
+	}
+
+	methodFilter := r.URL.Query().Get("method")
+	pathFilter := r.URL.Query().Get("path")
+
+	var startTime *time.Time
+	if startTimeStr := r.URL.Query().Get("start_time"); startTimeStr != "" {
+		if parsed, err := time.Parse("2006-01-02T15:04", startTimeStr); err == nil {
+			startTime = &parsed
+		}
+	}
+
+	var endTime *time.Time
+	if endTimeStr := r.URL.Query().Get("end_time"); endTimeStr != "" {
+		if parsed, err := time.Parse("2006-01-02T15:04", endTimeStr); err == nil {
+			endTime = &parsed
+		}
+	}
+
+	// Get logs
+	logs, err := h.store.GetRequestLogs(limit, offset, methodFilter, pathFilter, startTime, endTime)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get total count
+	totalCount, err := h.store.GetRequestLogCount(methodFilter, pathFilter, startTime, endTime)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Calculate pagination values
+	nextOffset := offset + limit
+	prevOffset := offset - limit
+	if prevOffset < 0 {
+		prevOffset = 0
+	}
+	showingEnd := offset + len(logs)
+	if showingEnd > totalCount {
+		showingEnd = totalCount
+	}
+
+	// Convert logs to JSON for JavaScript
+	logsJSON, _ := json.Marshal(logs)
+
+	data := struct {
+		Logs       []models.RequestLog
+		LogsJSON   string
+		Total      int
+		Limit      int
+		Offset     int
+		NextOffset int
+		PrevOffset int
+		ShowingEnd int
+		HasMore    bool
+		Method     string
+		Path       string
+		StartTime  string
+		EndTime    string
+	}{
+		Logs:       logs,
+		LogsJSON:   string(logsJSON),
+		Total:      totalCount,
+		Limit:      limit,
+		Offset:     offset,
+		NextOffset: nextOffset,
+		PrevOffset: prevOffset,
+		ShowingEnd: showingEnd,
+		HasMore:    offset+len(logs) < totalCount,
+		Method:     methodFilter,
+		Path:       pathFilter,
+		StartTime:  r.URL.Query().Get("start_time"),
+		EndTime:    r.URL.Query().Get("end_time"),
+	}
+
+	// Create template with custom functions
+	funcMap := template.FuncMap{
+		"add": func(a, b int) int { return a + b },
+		"sub": func(a, b int) int { return a - b },
+	}
+	tmpl := template.Must(template.New("").Funcs(funcMap).ParseFiles("web/templates/layout.html", "web/templates/logs.html"))
+	tmpl.Execute(w, data)
+}
+
+// QueryRequestLogs returns request logs with optional filters (JSON API)
+func (h *Handler) QueryRequestLogs(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	limit := 100 // default limit
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && parsedLimit > 0 && parsedLimit <= 1000 {
+			limit = int(parsedLimit)
+		}
+	}
+
+	offset := 0
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if parsedOffset, err := strconv.ParseInt(offsetStr, 10, 32); err == nil {
+			offset = int(parsedOffset)
+		}
+	}
+
+	methodFilter := r.URL.Query().Get("method")
+	pathFilter := r.URL.Query().Get("path")
+
+	var startTime *time.Time
+	if startTimeStr := r.URL.Query().Get("start_time"); startTimeStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
+			startTime = &parsed
+		}
+	}
+
+	var endTime *time.Time
+	if endTimeStr := r.URL.Query().Get("end_time"); endTimeStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
+			endTime = &parsed
+		}
+	}
+
+	// Get logs
+	logs, err := h.store.GetRequestLogs(limit, offset, methodFilter, pathFilter, startTime, endTime)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get total count
+	totalCount, err := h.store.GetRequestLogCount(methodFilter, pathFilter, startTime, endTime)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return JSON response
+	response := map[string]interface{}{
+		"logs":     logs,
+		"total":    totalCount,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": offset+len(logs) < totalCount,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }

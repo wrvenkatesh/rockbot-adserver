@@ -65,6 +65,24 @@ func (s *Store) initSchema() error {
 		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP
 	);
 	CREATE INDEX IF NOT EXISTS idx_impressions_client_ts ON impressions(client_id, timestamp);
+	CREATE TABLE IF NOT EXISTS request_logs (
+		id TEXT PRIMARY KEY,
+		method TEXT NOT NULL,
+		path TEXT NOT NULL,
+		query_params TEXT,
+		request_headers TEXT,
+		request_body TEXT,
+		response_status INTEGER NOT NULL,
+		response_headers TEXT,
+		response_body TEXT,
+		duration_ms INTEGER NOT NULL,
+		timestamp DATETIME DEFAULT CURRENT_TIMESTAMP,
+		remote_addr TEXT,
+		user_agent TEXT
+	);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_timestamp ON request_logs(timestamp);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_path ON request_logs(path);
+	CREATE INDEX IF NOT EXISTS idx_request_logs_method ON request_logs(method);
 	`
 	_, err := s.db.Exec(schema)
 	return err
@@ -237,4 +255,91 @@ func (s *Store) GetAvailableAdByMediaURL(mediaURL string) (*models.Ad, error) {
 		ad.CampaignID = campaignID.String
 	}
 	return &ad, nil
+}
+
+// SaveRequestLog saves a request/response log to the database
+func (s *Store) SaveRequestLog(log models.RequestLog) error {
+	_, err := s.db.Exec(`
+		INSERT INTO request_logs (
+			id, method, path, query_params, request_headers, request_body,
+			response_status, response_headers, response_body, duration_ms,
+			timestamp, remote_addr, user_agent
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		log.ID, log.Method, log.Path, log.QueryParams, log.RequestHeaders, log.RequestBody,
+		log.ResponseStatus, log.ResponseHeaders, log.ResponseBody, log.DurationMs,
+		log.Timestamp, log.RemoteAddr, log.UserAgent)
+	return err
+}
+
+// GetRequestLogs retrieves request logs with optional filters
+func (s *Store) GetRequestLogs(limit int, offset int, methodFilter string, pathFilter string, startTime *time.Time, endTime *time.Time) ([]models.RequestLog, error) {
+	query := "SELECT id, method, path, query_params, request_headers, request_body, response_status, response_headers, response_body, duration_ms, timestamp, remote_addr, user_agent FROM request_logs WHERE 1=1"
+	args := []interface{}{}
+
+	if methodFilter != "" {
+		query += " AND method = ?"
+		args = append(args, methodFilter)
+	}
+	if pathFilter != "" {
+		query += " AND path LIKE ?"
+		args = append(args, "%"+pathFilter+"%")
+	}
+	if startTime != nil {
+		query += " AND timestamp >= ?"
+		args = append(args, *startTime)
+	}
+	if endTime != nil {
+		query += " AND timestamp <= ?"
+		args = append(args, *endTime)
+	}
+
+	query += " ORDER BY timestamp DESC LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var logs []models.RequestLog
+	for rows.Next() {
+		var log models.RequestLog
+		err := rows.Scan(
+			&log.ID, &log.Method, &log.Path, &log.QueryParams, &log.RequestHeaders, &log.RequestBody,
+			&log.ResponseStatus, &log.ResponseHeaders, &log.ResponseBody, &log.DurationMs,
+			&log.Timestamp, &log.RemoteAddr, &log.UserAgent)
+		if err != nil {
+			return nil, err
+		}
+		logs = append(logs, log)
+	}
+	return logs, nil
+}
+
+// GetRequestLogCount returns the total count of request logs matching filters
+func (s *Store) GetRequestLogCount(methodFilter string, pathFilter string, startTime *time.Time, endTime *time.Time) (int, error) {
+	query := "SELECT COUNT(*) FROM request_logs WHERE 1=1"
+	args := []interface{}{}
+
+	if methodFilter != "" {
+		query += " AND method = ?"
+		args = append(args, methodFilter)
+	}
+	if pathFilter != "" {
+		query += " AND path LIKE ?"
+		args = append(args, "%"+pathFilter+"%")
+	}
+	if startTime != nil {
+		query += " AND timestamp >= ?"
+		args = append(args, *startTime)
+	}
+	if endTime != nil {
+		query += " AND timestamp <= ?"
+		args = append(args, *endTime)
+	}
+
+	var count int
+	err := s.db.QueryRow(query, args...).Scan(&count)
+	return count, err
 }

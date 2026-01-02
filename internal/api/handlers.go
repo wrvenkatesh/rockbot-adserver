@@ -462,8 +462,69 @@ func (h *Handler) ServeAds(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(xmlResponse))
 }
 
+// QueryRequestLogs returns request logs with optional filters (JSON API)
+func (h *Handler) QueryRequestLogs(w http.ResponseWriter, r *http.Request) {
+	// Parse query parameters
+	limit := 100 // default limit
+	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
+		if parsedLimit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && parsedLimit > 0 && parsedLimit <= 1000 {
+			limit = int(parsedLimit)
+		}
+	}
+
+	offset := 0
+	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
+		if parsedOffset, err := strconv.ParseInt(offsetStr, 10, 32); err == nil {
+			offset = int(parsedOffset)
+		}
+	}
+
+	methodFilter := r.URL.Query().Get("method")
+	pathFilter := r.URL.Query().Get("path")
+
+	var startTime *time.Time
+	if startTimeStr := r.URL.Query().Get("start_time"); startTimeStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
+			startTime = &parsed
+		}
+	}
+
+	var endTime *time.Time
+	if endTimeStr := r.URL.Query().Get("end_time"); endTimeStr != "" {
+		if parsed, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
+			endTime = &parsed
+		}
+	}
+
+	// Get logs
+	logs, err := h.store.GetRequestLogs(limit, offset, methodFilter, pathFilter, startTime, endTime)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get total count
+	totalCount, err := h.store.GetRequestLogCount(methodFilter, pathFilter, startTime, endTime)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return JSON response
+	response := map[string]interface{}{
+		"logs":     logs,
+		"total":    totalCount,
+		"limit":    limit,
+		"offset":   offset,
+		"has_more": offset+len(logs) < totalCount,
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
 // ListRequestLogs renders the request logs UI page
-func (h *Handler) ListRequestLogs(w http.ResponseWriter, r *http.Request) {
+/* func (h *Handler) ListRequestLogs(w http.ResponseWriter, r *http.Request) {
 	// Parse query parameters for filters
 	limit := 50 // default limit for UI
 	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
@@ -561,65 +622,4 @@ func (h *Handler) ListRequestLogs(w http.ResponseWriter, r *http.Request) {
 	}
 	tmpl := template.Must(template.New("").Funcs(funcMap).ParseFiles("web/templates/layout.html", "web/templates/logs.html"))
 	tmpl.Execute(w, data)
-}
-
-// QueryRequestLogs returns request logs with optional filters (JSON API)
-func (h *Handler) QueryRequestLogs(w http.ResponseWriter, r *http.Request) {
-	// Parse query parameters
-	limit := 100 // default limit
-	if limitStr := r.URL.Query().Get("limit"); limitStr != "" {
-		if parsedLimit, err := strconv.ParseInt(limitStr, 10, 32); err == nil && parsedLimit > 0 && parsedLimit <= 1000 {
-			limit = int(parsedLimit)
-		}
-	}
-
-	offset := 0
-	if offsetStr := r.URL.Query().Get("offset"); offsetStr != "" {
-		if parsedOffset, err := strconv.ParseInt(offsetStr, 10, 32); err == nil {
-			offset = int(parsedOffset)
-		}
-	}
-
-	methodFilter := r.URL.Query().Get("method")
-	pathFilter := r.URL.Query().Get("path")
-
-	var startTime *time.Time
-	if startTimeStr := r.URL.Query().Get("start_time"); startTimeStr != "" {
-		if parsed, err := time.Parse(time.RFC3339, startTimeStr); err == nil {
-			startTime = &parsed
-		}
-	}
-
-	var endTime *time.Time
-	if endTimeStr := r.URL.Query().Get("end_time"); endTimeStr != "" {
-		if parsed, err := time.Parse(time.RFC3339, endTimeStr); err == nil {
-			endTime = &parsed
-		}
-	}
-
-	// Get logs
-	logs, err := h.store.GetRequestLogs(limit, offset, methodFilter, pathFilter, startTime, endTime)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Get total count
-	totalCount, err := h.store.GetRequestLogCount(methodFilter, pathFilter, startTime, endTime)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// Return JSON response
-	response := map[string]interface{}{
-		"logs":     logs,
-		"total":    totalCount,
-		"limit":    limit,
-		"offset":   offset,
-		"has_more": offset+len(logs) < totalCount,
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
+} */

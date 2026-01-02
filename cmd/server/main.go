@@ -94,7 +94,7 @@ func main() {
 	})))
 
 	http.Handle("/client", loggingMiddleware(api.AuthMiddleware(h.ClientDemo)))
-	http.Handle("/logs", loggingMiddleware(api.AuthMiddleware(h.ListRequestLogs)))
+	// http.Handle("/logs", loggingMiddleware(api.AuthMiddleware(h.ListRequestLogs)))
 	http.Handle("/api/logs", loggingMiddleware(api.AuthMiddleware(h.QueryRequestLogs)))
 	http.Handle("/vast", loggingMiddleware(api.AuthMiddleware(h.ServeAds)))
 	// Public API

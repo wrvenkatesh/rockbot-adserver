@@ -14,6 +14,11 @@
 - Use `Client Demo` to simulate rendering ads using VAST. Client-Id is hardcoded for testing purposes. Change the DMA to render relevant ads. Using `*` as DMA will render all campaigns as long as campaign dates fall within the window.
 - Once Ads are requested multiple times, and when threshold of 300s is reached, no more Ads will be served.
 
+## Accessing application over Cloud env
+- Open `https://rockbot-adserver.onrender.com/` and follow similar steps as above for application access.
+- Please note that its deployed on a free version on a Cloud server. It might take few seconds to load the application. Also, once cloud environment goes down after a period of inactivity, DB data is also lost.
+- Its better to run it from local if DB data need to be retained for testing/verification
+
 ## Backend Details
 - Every request and response data are persisted in RequestLog model
 - Similarly impressions table has all details are ads served for every client
@@ -24,4 +29,6 @@
 - Query request log  `select id, method, path, request_body, response_status from request_logs;`
 - Query impressions `select * from impressions;`
 - Query campaigns `select * from campaigns;`
+
+
 

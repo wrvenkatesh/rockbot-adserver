@@ -3,6 +3,7 @@ package main
 import (
 	"log"
 	"net/http"
+	"os"
 	"rockbot-adserver/internal/api"
 	"rockbot-adserver/internal/models"
 	"rockbot-adserver/internal/service"
@@ -13,8 +14,14 @@ import (
 )
 
 func main() {
+	// Get database path from environment variable or use default
+	dbPath := os.Getenv("DB_PATH")
+	if dbPath == "" {
+		dbPath = "adserver.db"
+	}
+
 	// Initialize Store
-	db, err := store.NewStore("adserver.db")
+	db, err := store.NewStore(dbPath)
 	if err != nil {
 		log.Fatalf("Failed to init store: %v", err)
 	}

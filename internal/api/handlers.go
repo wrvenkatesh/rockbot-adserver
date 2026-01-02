@@ -189,6 +189,7 @@ func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
 	tmpl.Execute(w, data)
 }
 
+// CreateCampaign handles campaign creation form submission
 func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 	if r.Method != "POST" {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)

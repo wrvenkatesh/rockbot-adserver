@@ -198,6 +198,69 @@ func (s *Store) GetAllCampaigns() ([]models.Campaign, error) {
 	return campaigns, nil
 }
 
+// GetCampaignByID retrieves a campaign by ID with its ads
+func (s *Store) GetCampaignByID(id string) (*models.Campaign, error) {
+	// Get campaign
+	var c models.Campaign
+	err := s.db.QueryRow("SELECT id, name, start_time, end_time, target_dma FROM campaigns WHERE id = ?", id).
+		Scan(&c.ID, &c.Name, &c.StartTime, &c.EndTime, &c.TargetDMA)
+	if err != nil {
+		return nil, err
+	}
+
+	// Get ads for this campaign
+	rows, err := s.db.Query("SELECT id, campaign_id, media_url, duration_seconds, creative_id FROM ads WHERE campaign_id = ?", id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var ads []models.Ad
+	for rows.Next() {
+		var ad models.Ad
+		if err := rows.Scan(&ad.ID, &ad.CampaignID, &ad.MediaURL, &ad.DurationSeconds, &ad.CreativeID); err != nil {
+			return nil, err
+		}
+		ads = append(ads, ad)
+	}
+	c.Ads = ads
+
+	return &c, nil
+}
+
+// UpdateCampaign updates a campaign and its ads
+func (s *Store) UpdateCampaign(c models.Campaign) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	// Update campaign
+	_, err = tx.Exec("UPDATE campaigns SET name = ?, start_time = ?, end_time = ?, target_dma = ? WHERE id = ?",
+		c.Name, c.StartTime, c.EndTime, c.TargetDMA, c.ID)
+	if err != nil {
+		return err
+	}
+
+	// Delete existing ads for this campaign
+	_, err = tx.Exec("DELETE FROM ads WHERE campaign_id = ?", c.ID)
+	if err != nil {
+		return err
+	}
+
+	// Insert new ads
+	for _, ad := range c.Ads {
+		_, err = tx.Exec("INSERT INTO ads (id, campaign_id, media_url, duration_seconds, creative_id) VALUES (?, ?, ?, ?, ?)",
+			ad.ID, c.ID, ad.MediaURL, ad.DurationSeconds, ad.CreativeID)
+		if err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
 // SeedAvailableAds seeds available ads (with NULL campaign_id) if they don't exist
 func (s *Store) SeedAvailableAds(ads []models.Ad) error {
 	for _, ad := range ads {

@@ -173,11 +173,15 @@ func (h *Handler) ListCampaigns(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Campaigns    []models.Campaign
-		AvailableAds []models.Ad
+		Campaign        *models.Campaign
+		Campaigns       []models.Campaign
+		AvailableAds    []models.Ad
+		CurrentMediaURL string
 	}{
-		Campaigns:    campaigns,
-		AvailableAds: availableAds,
+		Campaign:        nil,
+		Campaigns:       campaigns,
+		AvailableAds:    availableAds,
+		CurrentMediaURL: "",
 	}
 
 	log.Println("data.Campaigns", data.Campaigns)
@@ -241,6 +245,193 @@ func (h *Handler) CreateCampaign(w http.ResponseWriter, r *http.Request) {
 	}
 
 	http.Redirect(w, r, "/campaigns", http.StatusSeeOther)
+}
+
+// EditCampaign shows the edit form for a campaign
+func (h *Handler) EditCampaign(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "GET" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract campaign ID from path (e.g., /campaigns/123/edit)
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 3 || pathParts[0] != "campaigns" || pathParts[2] != "edit" {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+	campaignID := pathParts[1]
+
+	campaign, err := h.service.GetCampaign(campaignID)
+	if err != nil {
+		http.Error(w, "Campaign not found", http.StatusNotFound)
+		return
+	}
+
+	availableAds, err := h.service.GetAvailableAds()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Get current ad's media URL if campaign has ads
+	currentMediaURL := ""
+	if len(campaign.Ads) > 0 {
+		currentMediaURL = campaign.Ads[0].MediaURL
+	}
+
+	// Get all campaigns for the table
+	allCampaigns, err := h.service.ListCampaigns()
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Campaign        *models.Campaign
+		Campaigns       []models.Campaign
+		AvailableAds    []models.Ad
+		CurrentMediaURL string
+	}{
+		Campaign:        campaign,
+		Campaigns:       allCampaigns,
+		AvailableAds:    availableAds,
+		CurrentMediaURL: currentMediaURL,
+	}
+
+	tmpl := template.Must(template.ParseFiles("web/templates/layout.html", "web/templates/campaigns.html"))
+	tmpl.Execute(w, data)
+}
+
+// UpdateCampaign handles campaign update form submission
+func (h *Handler) UpdateCampaign(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "POST" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract campaign ID from path (e.g., /campaigns/123/update)
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 3 || pathParts[0] != "campaigns" || pathParts[2] != "update" {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+	campaignID := pathParts[1]
+
+	startTimeStr := r.FormValue("start_time")
+	endTimeStr := r.FormValue("end_time")
+
+	start, err := time.Parse("2006-01-02T15:04", startTimeStr)
+	if err != nil {
+		log.Printf("Error parsing start_time '%s': %v", startTimeStr, err)
+		http.Error(w, "Invalid start_time format", http.StatusBadRequest)
+		return
+	}
+
+	end, err := time.Parse("2006-01-02T15:04", endTimeStr)
+	if err != nil {
+		log.Printf("Error parsing end_time '%s': %v", endTimeStr, err)
+		http.Error(w, "Invalid end_time format", http.StatusBadRequest)
+		return
+	}
+
+	// Get the selected available ad by media_url
+	mediaURL := r.FormValue("media_url")
+	availableAd, err := h.service.GetAvailableAdByMediaURL(mediaURL)
+	if err != nil {
+		http.Error(w, "Invalid media URL selected", http.StatusBadRequest)
+		return
+	}
+
+	// Create updated campaign
+	ads := []models.Ad{
+		{
+			MediaURL:        availableAd.MediaURL,
+			DurationSeconds: availableAd.DurationSeconds,
+			CreativeID:      availableAd.CreativeID,
+		},
+	}
+	campaign := models.Campaign{
+		ID:        campaignID,
+		Name:      r.FormValue("name"),
+		StartTime: start,
+		EndTime:   end,
+		TargetDMA: r.FormValue("target_dma"),
+		Ads:       ads,
+	}
+
+	if err := h.service.UpdateCampaign(campaign); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	http.Redirect(w, r, "/campaigns", http.StatusSeeOther)
+}
+
+// UpdateCampaignAPI handles REST API campaign updates (PUT/PATCH)
+func (h *Handler) UpdateCampaignAPI(w http.ResponseWriter, r *http.Request) {
+	if r.Method != "PUT" && r.Method != "PATCH" {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract campaign ID from path (e.g., /api/campaigns/123)
+	pathParts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+	if len(pathParts) < 3 || pathParts[0] != "api" || pathParts[1] != "campaigns" {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+	campaignID := pathParts[2]
+
+	// Parse JSON request body
+	var campaign models.Campaign
+	if err := json.NewDecoder(r.Body).Decode(&campaign); err != nil {
+		http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		return
+	}
+
+	// Ensure the ID matches
+	campaign.ID = campaignID
+
+	// Validate required fields
+	if campaign.Name == "" {
+		http.Error(w, "Campaign name is required", http.StatusBadRequest)
+		return
+	}
+	if campaign.StartTime.IsZero() || campaign.EndTime.IsZero() {
+		http.Error(w, "Start time and end time are required", http.StatusBadRequest)
+		return
+	}
+	if campaign.TargetDMA == "" {
+		http.Error(w, "Target DMA is required", http.StatusBadRequest)
+		return
+	}
+
+	// If ads are provided, validate them; otherwise keep existing ads
+	if len(campaign.Ads) == 0 {
+		// Get existing campaign to preserve ads
+		existing, err := h.service.GetCampaign(campaignID)
+		if err != nil {
+			http.Error(w, "Campaign not found", http.StatusNotFound)
+			return
+		}
+		campaign.Ads = existing.Ads
+	}
+
+	if err := h.service.UpdateCampaign(campaign); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Return updated campaign
+	updated, err := h.service.GetCampaign(campaignID)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(updated)
 }
 
 // Client Demo

@@ -7,6 +7,7 @@ import (
 	"rockbot-adserver/internal/models"
 	"rockbot-adserver/internal/service"
 	"rockbot-adserver/internal/store"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -61,14 +62,36 @@ func main() {
 	})))
 	http.Handle("/campaigns", loggingMiddleware(api.AuthMiddleware(h.ListCampaigns)))
 	http.Handle("/campaigns/create", loggingMiddleware(api.AuthMiddleware(h.CreateCampaign)))
+
+	// Campaign edit routes (dynamic paths)
+	http.Handle("/campaigns/", loggingMiddleware(api.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		if strings.HasSuffix(path, "/edit") {
+			h.EditCampaign(w, r)
+		} else if strings.HasSuffix(path, "/update") {
+			h.UpdateCampaign(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	})))
+
+	// REST API routes for campaigns
+	http.Handle("/api/campaigns/", loggingMiddleware(api.AuthMiddleware(func(w http.ResponseWriter, r *http.Request) {
+		path := r.URL.Path
+		// Check if it's a specific campaign ID (not just /api/campaigns)
+		if len(strings.TrimPrefix(path, "/api/campaigns/")) > 0 {
+			h.UpdateCampaignAPI(w, r)
+		} else {
+			http.NotFound(w, r)
+		}
+	})))
+
 	http.Handle("/client", loggingMiddleware(api.AuthMiddleware(h.ClientDemo)))
 	http.Handle("/logs", loggingMiddleware(api.AuthMiddleware(h.ListRequestLogs)))
-
-	// Request logs API (protected)
 	http.Handle("/api/logs", loggingMiddleware(api.AuthMiddleware(h.QueryRequestLogs)))
-
+	http.Handle("/vast", loggingMiddleware(api.AuthMiddleware(h.ServeAds)))
 	// Public API
-	http.Handle("/vast", loggingMiddleware(http.HandlerFunc(h.ServeAds)))
+	// http.Handle("/vast", loggingMiddleware(http.HandlerFunc(h.ServeAds)))
 
 	log.Println("Server starting on :8080...")
 	if err := http.ListenAndServe(":8080", nil); err != nil {

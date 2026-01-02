@@ -135,3 +135,21 @@ func (s *AdService) GetAvailableAds() ([]models.Ad, error) {
 func (s *AdService) GetAvailableAdByMediaURL(mediaURL string) (*models.Ad, error) {
 	return s.store.GetAvailableAdByMediaURL(mediaURL)
 }
+
+func (s *AdService) GetCampaign(id string) (*models.Campaign, error) {
+	return s.store.GetCampaignByID(id)
+}
+
+func (s *AdService) UpdateCampaign(c models.Campaign) error {
+	// Ensure campaign has an ID
+	if c.ID == "" {
+		return fmt.Errorf("campaign ID is required")
+	}
+	// Assign IDs to ads if missing
+	for i := range c.Ads {
+		if c.Ads[i].ID == "" {
+			c.Ads[i].ID = uuid.New().String()
+		}
+	}
+	return s.store.UpdateCampaign(c)
+}
